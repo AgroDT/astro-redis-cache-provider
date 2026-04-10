@@ -1,5 +1,11 @@
 # @agrodt/astro-redis-cache-provider
 
+[![CI](https://github.com/AgroDT/astro-redis-cache-provider/actions/workflows/ci.yml/badge.svg)](https://github.com/AgroDT/astro-redis-cache-provider/actions/workflows/ci.yml)
+[![Coverage Status](https://coveralls.io/repos/github/AgroDT/astro-redis-cache-provider/badge.svg?branch=main)](https://coveralls.io/github/AgroDT/astro-redis-cache-provider?branch=main)
+[![npm version](https://img.shields.io/npm/v/@agrodt/astro-redis-cache-provider.svg)](https://www.npmjs.com/package/@agrodt/astro-redis-cache-provider)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![npm downloads](https://img.shields.io/npm/dm/@agrodt/astro-redis-cache-provider.svg)](https://www.npmjs.com/package/@agrodt/astro-redis-cache-provider)
+
 Custom Redis cache provider for Astro route caching,
 powered by [`node-redis`](https://github.com/redis/node-redis).
 

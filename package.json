@@ -1,6 +1,6 @@
 {
   "name": "@agrodt/astro-redis-cache-provider",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Redis cache provider for Astro route caching using node-redis.",
   "keywords": [
     "astro",
@@ -21,6 +21,8 @@
   "files": [
     "dist",
     "!dist/**/*.test.*",
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
     "README.md",
     "LICENSE"
   ],

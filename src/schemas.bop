@@ -1,0 +1,12 @@
+struct StoredCacheEntry {
+  uint16 status;
+  map[string, string] headers;
+  byte[] body;
+  date storedAt;
+  uint32 maxAge;
+  uint32 swr;
+  string[] tags;
+  string path;
+  string[] vary;
+  map[string, string] varyValues;
+}

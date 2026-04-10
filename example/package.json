@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preview": "astro build && astro preview"
+  },
+  "dependencies": {
+    "@astrojs/node": "^10.0.4",
+    "astro": "^6.1.5",
+    "@agrodt/astro-redis-cache-provider": "link:.."
+  }
+}

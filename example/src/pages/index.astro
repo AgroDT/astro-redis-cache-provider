@@ -1,0 +1,74 @@
+---
+import Layout from "../layouts/Layout.astro";
+
+export const prerender = true;
+---
+
+<Layout title="Astro Redis Cache Demo" bodyClass="page-home">
+  <header>
+    <h1>Astro Redis Cache Provider Demo</h1>
+    <p>
+      This page demonstrates how
+      <code>@agrodt/astro-redis-cache-provider</code> works with Astro route
+      caching.
+    </p>
+  </header>
+
+  <section aria-labelledby="how-it-works-title">
+    <h2 id="how-it-works-title">How it works</h2>
+    <ol>
+      <li>The route <code>/cache-demo</code> enables Astro cache settings.</li>
+      <li>
+        Cache data is stored in Redis/Valkey through this custom provider.
+      </li>
+      <li>The cached page shows cache state hints.</li>
+    </ol>
+  </section>
+
+  <nav class="actions" aria-label="Demo actions">
+    <a href="/cache-demo"> Open cached page </a>
+    <button type="button" id="invalidate-cache-button">
+      Invalidate demo cache
+    </button>
+  </nav>
+  <p id="invalidate-result" role="status" aria-live="polite" aria-atomic="true">
+  </p>
+
+  <script>
+    const invalidateButton = document.getElementById(
+      "invalidate-cache-button",
+    ) as HTMLButtonElement;
+
+    invalidateButton.addEventListener("click", async function () {
+      const resultElement = document.getElementById(
+        "invalidate-result",
+      ) as HTMLParagraphElement;
+
+      this.disabled = true;
+      resultElement.textContent = "Invalidating cache...";
+
+      try {
+        const response = await fetch("/api/invalidate-cache", {
+          method: "POST",
+        });
+        const payload = await response.json();
+
+        if (!response.ok || !payload.ok) {
+          throw new Error(
+            payload.error ?? `Request failed (${response.status})`,
+          );
+        }
+
+        const invalidatedAt = new Date(
+          payload.invalidatedAt,
+        ).toLocaleTimeString();
+        resultElement.textContent = `Cache invalidated at ${invalidatedAt}.`;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        resultElement.textContent = `Cache invalidation failed: ${message}`;
+      } finally {
+        this.disabled = false;
+      }
+    });
+  </script>
+</Layout>

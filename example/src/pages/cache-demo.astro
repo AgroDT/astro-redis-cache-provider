@@ -1,0 +1,61 @@
+---
+import { randomUUID } from "node:crypto";
+import { DEMO_TAG } from "../const";
+import Layout from "../layouts/Layout.astro";
+
+const maxAgeSeconds = 30;
+const swrSeconds = 90;
+
+Astro.cache.set({
+  maxAge: maxAgeSeconds,
+  swr: swrSeconds,
+  tags: [DEMO_TAG],
+});
+
+const renderedAt = new Date().toISOString();
+const renderId = randomUUID();
+---
+
+<Layout
+  title="Cached Page Demo"
+  bodyClass="page-cache-demo"
+  bodyAttributes={{ "data-render-id": renderId, "data-rendered-at": renderedAt }}
+>
+  <h1>Cached Route: <code>/cache-demo</code></h1>
+  <p>
+    This route calls <code>Astro.cache.set()</code> with
+    <code>maxAge={maxAgeSeconds}</code>, <code>swr={swrSeconds}</code>,
+    and tag <code>{DEMO_TAG}</code>.
+  </p>
+
+  <dl class="kv-table" aria-label="Cache details">
+    <dt class="label">Rendered At (server)</dt>
+    <dd class="value">{renderedAt}</dd>
+
+    <dt class="label">Render ID (server)</dt>
+    <dd class="value">{renderId}</dd>
+
+    <dt class="label">Navigation Cache Status</dt>
+    <dd id="navigation-status" class="value status-value">Detecting...</dd>
+  </dl>
+
+  <nav class="actions" aria-label="Page navigation">
+    <a href="/">Back to home</a>
+  </nav>
+
+  <script>
+    const STORAGE_KEY = "astro-route-cache:last-render-id";
+    const renderId = document.body.dataset.renderId as string;
+
+    const navigationStatusElement = document.getElementById("navigation-status") as HTMLParagraphElement;
+    const previousRenderId = localStorage.getItem(STORAGE_KEY);
+
+    if (previousRenderId === renderId) {
+      navigationStatusElement.textContent = "HIT or STALE (cached HTML served)";
+    } else {
+      navigationStatusElement.textContent = "MISS (new server render)";
+    }
+
+    localStorage.setItem(STORAGE_KEY, renderId);
+  </script>
+</Layout>

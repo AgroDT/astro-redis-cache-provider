@@ -1,0 +1,9 @@
+{
+  "include": ["src/*.bop"],
+  "generators": {
+    "ts": {
+      "outFile": "src/schemas.ts",
+      "emitBinarySchema": false
+    }
+  }
+}

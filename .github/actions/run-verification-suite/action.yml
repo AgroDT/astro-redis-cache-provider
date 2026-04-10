@@ -1,0 +1,45 @@
+name: Run verification suite
+description: Run build, lint, format check and tests
+
+runs:
+  using: composite
+  steps:
+    - name: Build
+      id: build
+      continue-on-error: true
+      shell: bash
+      run: pnpm build
+
+    - name: Lint
+      id: lint
+      continue-on-error: true
+      shell: bash
+      run: pnpm lint --reporter github --error-on-warnings
+
+    - name: Format check
+      id: format
+      continue-on-error: true
+      shell: bash
+      run: pnpm format --reporter github
+
+    - name: Tests
+      id: tests
+      continue-on-error: true
+      shell: bash
+      run: >
+        node --test --experimental-test-coverage
+        --test-reporter=spec --test-reporter-destination=stdout
+        --test-reporter=junit --test-reporter-destination=junit.xml
+        --test-reporter=lcov --test-reporter-destination=lcov.info
+        dist/*.test.js
+
+    - name: Fail if any verification step failed
+      if: ${{ steps.build.outcome == 'failure' || steps.lint.outcome == 'failure' || steps.format.outcome == 'failure' || steps.tests.outcome == 'failure' }}
+      shell: bash
+      run: |
+        echo "::error::Verification suite failed."
+        echo "build=${{ steps.build.outcome }}"
+        echo "lint=${{ steps.lint.outcome }}"
+        echo "format=${{ steps.format.outcome }}"
+        echo "tests=${{ steps.tests.outcome }}"
+        exit 1

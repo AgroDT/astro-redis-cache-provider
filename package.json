@@ -1,0 +1,77 @@
+{
+  "name": "@agrodt/astro-redis-cache-provider",
+  "version": "0.1.0",
+  "description": "Redis cache provider for Astro route caching using node-redis.",
+  "keywords": [
+    "astro",
+    "cache",
+    "redis",
+    "route-caching"
+  ],
+  "license": "MIT",
+  "author": "Petr Tsymbarovich <petr@tsymbarovich.ru>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AgroDT/astro-redis-cache-provider.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AgroDT/astro-redis-cache-provider/issues"
+  },
+  "homepage": "https://github.com/AgroDT/astro-redis-cache-provider",
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "main": "./dist/runtime.js",
+  "types": "./dist/runtime.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/runtime.d.ts",
+      "default": "./dist/runtime.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "default": "./dist/runtime.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsgo -p tsconfig.json",
+    "check": "tsgo -p tsconfig.json --noEmit",
+    "docs:build": "pnpm dlx --package typedoc-github-theme typedoc --plugin typedoc-github-theme",
+    "format": "biome format",
+    "format:fix": "biome format --fix",
+    "generate:schemas": "pnpx bebop-tools build",
+    "lint": "biome lint",
+    "lint:fix": "biome lint --fix",
+    "prepack": "pnpm run build",
+    "pretest": "pnpm run build",
+    "test": "node --experimental-test-coverage --test dist/*.test.js"
+  },
+  "dependencies": {
+    "bebop": "^3.2.3",
+    "picomatch": "^4.0.4",
+    "redis": "^5.11.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.11",
+    "@types/node": "^25.6.0",
+    "@types/picomatch": "^4.0.3",
+    "@typescript/native-preview": "7.0.0-dev.20260410.1",
+    "astro": "^6.1.5"
+  },
+  "peerDependencies": {
+    "astro": "^6.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319"
+}

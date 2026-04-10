@@ -1,0 +1,164 @@
+---
+interface Props {
+  title: string;
+  bodyClass?: string;
+  bodyAttributes?: Record<string, string>;
+}
+
+const { title, bodyClass, bodyAttributes = {} } = Astro.props;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+    <style is:global>
+      :root {
+        color-scheme: light;
+        font-family: system-ui, sans-serif;
+      }
+
+      body {
+        margin: 0;
+        padding: 2rem 1rem;
+      }
+
+      body.page-home {
+        background: linear-gradient(135deg, #f7fafc 0%, #eef2ff 100%);
+        color: #1f2937;
+      }
+
+      body.page-cache-demo {
+        background: radial-gradient(
+          circle at top right,
+          #ecfeff,
+          #f8fafc 50%,
+          #eef2ff
+        );
+        color: #111827;
+      }
+
+      main.page-shell {
+        margin: 0 auto;
+        background: white;
+        border-radius: 1rem;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+        padding: 1.5rem;
+      }
+
+      body.page-home main.page-shell {
+        max-width: 48rem;
+        border: 1px solid #dbeafe;
+      }
+
+      body.page-cache-demo main.page-shell {
+        max-width: 52rem;
+        border: 1px solid #bfdbfe;
+      }
+
+      h1 {
+        margin-top: 0;
+      }
+
+      code {
+        background: #eff6ff;
+        padding: 0.1rem 0.35rem;
+        border-radius: 0.35rem;
+      }
+
+      a {
+        color: #1d4ed8;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        margin-top: 1rem;
+      }
+
+      .actions a,
+      .actions button {
+        font: inherit;
+        border-radius: 0.55rem;
+        padding: 0.6rem 0.9rem;
+        border: 1px solid #1d4ed8;
+      }
+
+      .actions a {
+        text-decoration: none;
+        color: #1e40af;
+        background: #dbeafe;
+      }
+
+      .actions button {
+        cursor: pointer;
+        color: white;
+        background: #1d4ed8;
+      }
+
+      .actions button[disabled] {
+        opacity: 0.7;
+        cursor: wait;
+      }
+
+      #invalidate-result {
+        min-height: 1.5rem;
+        margin: 0.85rem 0 0;
+      }
+
+      .kv-table {
+        display: grid;
+        grid-template-columns: clamp(12rem, 32vw, 18rem) minmax(0, 1fr);
+        column-gap: 1rem;
+        row-gap: 0.75rem;
+        margin: 1rem 0;
+        padding: 0;
+      }
+
+      .kv-table dt,
+      .kv-table dd {
+        margin: 0;
+      }
+
+      .label {
+        display: block;
+        color: #374151;
+      }
+
+      .value {
+        margin: 0;
+        font-family: ui-monospace, monospace;
+        font-size: 0.92rem;
+      }
+
+      .status-value {
+        font-size: 1.02rem;
+        font-weight: 700;
+        text-align: left;
+      }
+
+      @media (max-width: 640px) {
+        .kv-table {
+          grid-template-columns: 1fr;
+          row-gap: 0.3rem;
+        }
+
+        .kv-table dd {
+          margin-bottom: 0.7rem;
+        }
+
+        .kv-table dd:last-child {
+          margin-bottom: 0;
+        }
+      }
+    </style>
+  </head>
+  <body class={bodyClass} {...bodyAttributes}>
+    <main class="page-shell">
+      <slot />
+    </main>
+  </body>
+</html>

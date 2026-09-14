@@ -1,6 +1,13 @@
 import { hash as nodeHash } from "node:crypto";
 
 import type { CacheProvider } from "astro";
+import {
+  buildCacheControlDirectives,
+  collectInvalidationTags,
+  normalizeTags,
+  pathTag,
+  setConditionalHeaders,
+} from "astro/cache/provider-utils";
 import picomatch from "picomatch";
 import { createClient, RESP_TYPES } from "redis";
 
@@ -9,7 +16,8 @@ import { StoredCacheEntry } from "./schemas.js";
 export type { RedisCacheProvider, RedisCacheProviderOptions };
 export { createRedisCacheProvider, createRedisCacheProvider as default };
 
-const SCHEMA_VERSION = 1;
+// Version 2 uses Astro path tags instead of separate path indexes.
+const SCHEMA_VERSION = 2;
 
 /**
  * Built-in query parameter patterns excluded from cache keys.
@@ -74,6 +82,8 @@ interface QueryConfig {
   sort: boolean;
 }
 
+type RequestContext = Parameters<NonNullable<CacheProvider["onRequest"]>>[0];
+
 type RedisClient = ReturnType<typeof createClientWithTypeMapping>;
 
 /**
@@ -117,6 +127,8 @@ interface RedisCacheProviderOptions {
  * Astro cache provider implementation with an explicit shutdown hook.
  */
 interface RedisCacheProvider extends CacheProvider {
+  onRequest: NonNullable<CacheProvider["onRequest"]>;
+  setHeaders: NonNullable<CacheProvider["setHeaders"]>;
   /** Closes the Redis client connection used by the provider instance. */
   close(): Promise<void>;
 }
@@ -288,10 +300,6 @@ function buildVaryKey(prefix: string, primaryKey: string): string {
   return `${prefix}v${SCHEMA_VERSION}:vary:${hash(primaryKey)}`;
 }
 
-function buildPathIndexKey(prefix: string, path: string): string {
-  return `${prefix}v${SCHEMA_VERSION}:idx:path:${hash(path)}`;
-}
-
 function buildTagIndexKey(prefix: string, tag: string): string {
   return `${prefix}v${SCHEMA_VERSION}:idx:tag:${hash(tag)}`;
 }
@@ -300,14 +308,10 @@ function buildRevalidateLockKey(prefix: string, cacheKey: string): string {
   return `${prefix}v${SCHEMA_VERSION}:lock:${hash(cacheKey)}`;
 }
 
-function warn(message: string): void {
-  console.warn(`[astro:cache:redis] ${message}`);
-}
-
 function getCacheFreshness(
   entry: StoredCacheEntry,
 ): "fresh" | "stale" | "expired" {
-  const ageSeconds = Math.floor((Date.now() - entry.storedAt.getTime()) / 1000);
+  const ageSeconds = (Date.now() - entry.storedAt.getTime()) / 1000;
   if (ageSeconds <= entry.maxAge) {
     return "fresh";
   }
@@ -318,9 +322,7 @@ function getCacheFreshness(
 }
 
 function createResponseFromEntry(entry: StoredCacheEntry): Response {
-  const headers = new Headers(
-    entry.headers as unknown as Record<string, string>,
-  );
+  const headers = new Headers([...entry.headers]);
   const body = Buffer.from(entry.body);
   return new Response(body, {
     status: entry.status,
@@ -403,7 +405,9 @@ function createRedisCacheProvider(
 
   let clientPromise: Promise<RedisClient> | undefined;
 
-  const getClient = (): Promise<RedisClient> => {
+  const getClient = (
+    logger: Pick<RequestContext["logger"], "warn"> = console,
+  ): Promise<RedisClient> => {
     if (clientPromise) {
       return clientPromise;
     }
@@ -415,7 +419,7 @@ function createRedisCacheProvider(
 
     const client = createClientWithTypeMapping(redisUrl);
     client.on("error", (error) => {
-      warn(`Redis client error: ${String(error)}`);
+      logger.warn(`Redis client error: ${String(error)}`);
     });
 
     const pending = client
@@ -439,8 +443,7 @@ function createRedisCacheProvider(
     multi.del(key);
 
     if (existing) {
-      multi.sRem(buildPathIndexKey(keyPrefix, existing.path), key);
-      for (const tag of existing.tags) {
+      for (const tag of [pathTag(existing.path), ...existing.tags]) {
         multi.sRem(buildTagIndexKey(keyPrefix, tag), key);
       }
     }
@@ -467,17 +470,12 @@ function createRedisCacheProvider(
     }
 
     if (existing) {
-      multi.sRem(buildPathIndexKey(keyPrefix, existing.path), key);
-      for (const tag of existing.tags) {
+      for (const tag of [pathTag(existing.path), ...existing.tags]) {
         multi.sRem(buildTagIndexKey(keyPrefix, tag), key);
       }
     }
 
-    const pathIndexKey = buildPathIndexKey(keyPrefix, entry.path);
-    multi.sAdd(pathIndexKey, key);
-    multi.expire(pathIndexKey, ttl, "NX");
-    multi.expire(pathIndexKey, ttl, "GT");
-    for (const tag of entry.tags) {
+    for (const tag of [pathTag(entry.path), ...entry.tags]) {
       const tagIndexKey = buildTagIndexKey(keyPrefix, tag);
       multi.sAdd(tagIndexKey, key);
       multi.expire(tagIndexKey, ttl, "NX");
@@ -501,6 +499,7 @@ function createRedisCacheProvider(
     request: Request,
     requestUrl: URL,
     primaryKey: string,
+    logger: RequestContext["logger"],
   ): Promise<boolean> => {
     const cdnCacheControl = response.headers.get("CDN-Cache-Control");
     const { maxAge, swr } = parseCdnCacheControl(cdnCacheControl);
@@ -509,7 +508,7 @@ function createRedisCacheProvider(
     }
 
     if (response.headers.has("set-cookie")) {
-      warn(
+      logger.warn(
         `Skipping cache for ${requestUrl.pathname}${requestUrl.search} because response includes Set-Cookie.`,
       );
       return false;
@@ -543,6 +542,7 @@ function createRedisCacheProvider(
     request: Request,
     primaryKey: string,
     next: () => Promise<Response>,
+    logger: RequestContext["logger"],
   ): Promise<void> => {
     const lock = await client.set(lockKey, "1", {
       NX: true,
@@ -560,9 +560,10 @@ function createRedisCacheProvider(
         request,
         requestUrl,
         primaryKey,
+        logger,
       );
     } catch (error) {
-      warn(
+      logger.warn(
         `Background revalidation failed for ${requestUrl.pathname}${requestUrl.search}: ${String(error)}`,
       );
     } finally {
@@ -587,6 +588,19 @@ function createRedisCacheProvider(
 
   return {
     name: "redis",
+    setHeaders(options) {
+      const headers = new Headers();
+      const directives = buildCacheControlDirectives(options);
+      if (directives !== undefined) {
+        headers.set("CDN-Cache-Control", directives);
+      }
+      const tags = normalizeTags(options.tags);
+      if (tags.length > 0) {
+        headers.set("Cache-Tag", tags.join(", "));
+      }
+      setConditionalHeaders(headers, options);
+      return headers;
+    },
     async onRequest(context, next) {
       if (context.request.method !== "GET") {
         return next();
@@ -597,9 +611,11 @@ function createRedisCacheProvider(
 
       let client: RedisClient;
       try {
-        client = await getClient();
+        client = await getClient(context.logger);
       } catch (error) {
-        warn(`Redis is unavailable, bypassing cache: ${String(error)}`);
+        context.logger.warn(
+          `Redis is unavailable, bypassing cache: ${String(error)}`,
+        );
         return next();
       }
 
@@ -630,16 +646,11 @@ function createRedisCacheProvider(
               context.request,
               primaryKey,
               next,
+              context.logger,
             );
 
-            const waitUntil = (
-              context as {
-                waitUntil?: (promise: Promise<unknown>) => void;
-              }
-            ).waitUntil;
-
-            if (typeof waitUntil === "function") {
-              waitUntil(task);
+            if (context.waitUntil) {
+              context.waitUntil(task);
             } else {
               void task;
             }
@@ -650,7 +661,9 @@ function createRedisCacheProvider(
           }
         }
       } catch (error) {
-        warn(`Cache read failed, bypassing cache read path: ${String(error)}`);
+        context.logger.warn(
+          `Cache read failed, bypassing cache read path: ${String(error)}`,
+        );
         return next();
       }
 
@@ -663,13 +676,14 @@ function createRedisCacheProvider(
           context.request,
           requestUrl,
           primaryKey,
+          context.logger,
         );
         if (stored) {
           forClient.headers.set("X-Astro-Cache", "MISS");
         }
         return forClient;
       } catch (error) {
-        warn(
+        context.logger.warn(
           `Cache write failed, returning uncached response: ${String(error)}`,
         );
         return response;
@@ -678,20 +692,13 @@ function createRedisCacheProvider(
     async invalidate(options) {
       const client = await getClient();
 
-      if (options.path) {
-        await invalidateByIndex(
-          client,
-          buildPathIndexKey(keyPrefix, options.path),
-        );
-      }
-
-      if (options.tags) {
-        const tags = Array.isArray(options.tags)
-          ? options.tags
-          : [options.tags];
-        for (const tag of tags) {
-          await invalidateByIndex(client, buildTagIndexKey(keyPrefix, tag));
-        }
+      // Astro's helper appends the path tag, so pass a copy of caller-owned tags.
+      const tags = collectInvalidationTags({
+        ...options,
+        tags: [...normalizeTags(options.tags)],
+      });
+      for (const tag of new Set(tags)) {
+        await invalidateByIndex(client, buildTagIndexKey(keyPrefix, tag));
       }
     },
     async close() {

@@ -1,8 +1,8 @@
 // @ts-check
-import { defineConfig } from "astro/config";
 
-import node from "@astrojs/node";
 import { redisCache } from "@agrodt/astro-redis-cache-provider/config";
+import node from "@astrojs/node";
+import { defineConfig } from "astro/config";
 
 // https://astro.build/config
 export default defineConfig({
@@ -10,11 +10,9 @@ export default defineConfig({
   adapter: node({
     mode: "standalone",
   }),
-  experimental: {
-    cache: {
-      provider: redisCache({
-        url: () => process.env.REDIS_URL,
-      }),
-    },
+  cache: {
+    provider: redisCache({
+      url: () => process.env.REDIS_URL,
+    }),
   },
 });

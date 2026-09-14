@@ -22,7 +22,7 @@ pnpm add @agrodt/astro-redis-cache-provider
 ```
 
 `node-redis` already comes as a dependency of this package. You only need
-a reachable Redis server.
+a reachable Redis server and Astro 7.3 or later within Astro 7.
 
 ## Usage
 
@@ -32,16 +32,28 @@ import { defineConfig } from "astro/config";
 import { redisCache } from "@agrodt/astro-redis-cache-provider/config";
 
 export default defineConfig({
-  experimental: {
-    cache: {
-      provider: redisCache({
-        url: () => process.env.REDIS_URL,
-        keyPrefix: "astro:cache",
-      }),
-    },
+  cache: {
+    provider: redisCache({
+      url: () => process.env.REDIS_URL,
+      keyPrefix: "astro:cache",
+    }),
   },
 });
 ```
+
+## Upgrading from Astro 6
+
+Move `experimental.cache` to the top-level `cache` option. This provider uses
+Astro's public `astro/cache/provider-utils` helpers for response headers and
+path/tag invalidation. URL normalization, response serialization, `Vary`, and
+background revalidation remain provider-owned because Astro does not export
+runtime helpers for them.
+
+Redis keys now use the `v2` namespace: paths are indexed using Astro's
+`astro-path:` tags. Existing `v1` entries are not reused, so the cache starts
+cold after upgrading. Old entries and indexes expire according to their TTL;
+old `v1:vary:*` metadata has no TTL and may be removed separately.
+The `astro-path:` tag prefix is reserved for path invalidation.
 
 ## Options
 

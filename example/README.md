@@ -14,7 +14,8 @@ Start Valkey (from repository root):
 docker compose up -d valkey
 ```
 
-Install and run the example:
+Build the provider with `pnpm build` in the repository root, then install
+and run the Astro 7 example:
 
 ```bash
 cd example

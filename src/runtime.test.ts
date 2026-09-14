@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import process from "node:process";
 import { after, before, it } from "node:test";
+import { pathTag } from "astro/cache/provider-utils";
 import { createClient, RESP_TYPES } from "redis";
 import {
   createRedisCacheProvider,
@@ -9,17 +10,15 @@ import {
 } from "./runtime.js";
 
 const REDIS_URL = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
-const SCHEMA_VERSION = 1;
-let provider: RedisCacheProvider & {
-  onRequest: NonNullable<RedisCacheProvider["onRequest"]>;
-};
+const SCHEMA_VERSION = 2;
+let provider: RedisCacheProvider;
 
 function createContext(
   url: string,
   init?: RequestInit,
-): { request: Request; url: URL } {
+): Parameters<RedisCacheProvider["onRequest"]>[0] {
   const request = new Request(url, init);
-  return { request, url: new URL(url) };
+  return { request, url: new URL(url), logger: console };
 }
 
 function uniquePrefix(name: string): string {
@@ -35,7 +34,7 @@ function normalizeKeyPrefix(value: string): string {
 }
 
 function buildPathIndexKey(prefix: string, path: string): string {
-  return `${normalizeKeyPrefix(prefix)}v${SCHEMA_VERSION}:idx:path:${hash(path)}`;
+  return buildTagIndexKey(prefix, pathTag(path));
 }
 
 function buildTagIndexKey(prefix: string, tag: string): string {
@@ -51,9 +50,7 @@ function cacheKeyFor(urlString: string): string {
 }
 
 async function createIsolatedProvider(name: string): Promise<{
-  provider: RedisCacheProvider & {
-    onRequest: NonNullable<RedisCacheProvider["onRequest"]>;
-  };
+  provider: RedisCacheProvider;
   close: () => Promise<void>;
   keyPrefix: string;
 }> {
@@ -62,13 +59,8 @@ async function createIsolatedProvider(name: string): Promise<{
     url: REDIS_URL,
     keyPrefix,
   });
-  if (!isolated.onRequest) {
-    throw new Error("Expected provider.onRequest to be defined");
-  }
   return {
-    provider: isolated as RedisCacheProvider & {
-      onRequest: NonNullable<RedisCacheProvider["onRequest"]>;
-    },
+    provider: isolated,
     close: () => isolated.close(),
     keyPrefix,
   };
@@ -79,9 +71,6 @@ before(async () => {
     url: REDIS_URL,
     keyPrefix: uniquePrefix("suite"),
   });
-  if (!newProvider.onRequest) {
-    throw new Error("Expected provider.onRequest to be defined");
-  }
 
   await newProvider.onRequest(
     createContext("https://example.com/__healthcheck"),
@@ -96,7 +85,7 @@ before(async () => {
   );
   await newProvider.invalidate({ path: "/__healthcheck" });
 
-  provider = newProvider as typeof provider;
+  provider = newProvider;
 });
 
 after(async () => {
@@ -344,10 +333,6 @@ it("allows ignoring Vary: Cookie when configured", async () => {
     ignoredVaryHeaders: ["cookie"],
   });
   try {
-    if (!isolated.onRequest) {
-      throw new Error("Expected provider.onRequest to be defined");
-    }
-
     const url = "https://example.com/profile";
     let calls = 0;
 
@@ -433,15 +418,11 @@ it("returns STALE and revalidates in background", async () => {
       });
     });
 
-    // Runtime age checks are second-granularity; >2s avoids boundary flakiness.
+    // Wait beyond maxAge while staying within the stale revalidation window.
     await new Promise((resolve) => setTimeout(resolve, 2200));
 
     let waitUntilPromise: Promise<unknown> | undefined;
-    const staleContext = createContext(url) as {
-      request: Request;
-      url: URL;
-      waitUntil?: (promise: Promise<unknown>) => void;
-    };
+    const staleContext = createContext(url);
     staleContext.waitUntil = (promise: Promise<unknown>) => {
       waitUntilPromise = promise;
     };
@@ -477,9 +458,6 @@ it("falls back to MISS when stored entry payload is invalid", async () => {
     url: REDIS_URL,
     keyPrefix: prefix,
   });
-  if (!isolated.onRequest) {
-    throw new Error("Expected provider.onRequest to be defined");
-  }
 
   const client = createClient({ url: REDIS_URL }).withTypeMapping({
     [RESP_TYPES.BLOB_STRING]: Buffer,
@@ -488,7 +466,7 @@ it("falls back to MISS when stored entry payload is invalid", async () => {
 
   try {
     const url = "https://example.com/broken";
-    const fullKey = `${prefix.endsWith(":") ? prefix : `${prefix}:`}v1:entry:${hash(cacheKeyFor(url))}`;
+    const fullKey = `${prefix.endsWith(":") ? prefix : `${prefix}:`}v${SCHEMA_VERSION}:entry:${hash(cacheKeyFor(url))}`;
     await client.set(fullKey, Buffer.from([0, 1, 2, 3]), { EX: 60 });
 
     let calls = 0;
@@ -516,9 +494,6 @@ it("sets TTL on index keys and keeps longer TTL for shared tags", async () => {
     url: REDIS_URL,
     keyPrefix,
   });
-  if (!isolated.onRequest) {
-    throw new Error("Expected provider.onRequest to be defined");
-  }
 
   const client = createClient({ url: REDIS_URL });
   await client.connect();
@@ -562,5 +537,103 @@ it("sets TTL on index keys and keeps longer TTL for shared tags", async () => {
   } finally {
     await isolated.close();
     await client.close();
+  }
+});
+
+it("stores headers produced by setHeaders and preserves them on HIT", async () => {
+  const { provider: isolated, close } = await createIsolatedProvider("headers");
+  try {
+    const context = createContext("https://example.com/headers");
+    const lastModified = new Date("2026-09-14T12:00:00Z");
+    const miss = await isolated.onRequest(
+      context,
+      async () =>
+        new Response("body", {
+          headers: isolated.setHeaders(
+            { maxAge: 60, tags: ["headers"], etag: '"v1"', lastModified },
+            context.request,
+          ),
+        }),
+    );
+    assert.equal(miss.headers.get("X-Astro-Cache"), "MISS");
+    const hit = await isolated.onRequest(context, async () => {
+      assert.fail("A cached response must not render again");
+    });
+    assert.equal(hit.headers.get("X-Astro-Cache"), "HIT");
+    assert.equal(hit.headers.get("ETag"), '"v1"');
+    assert.equal(hit.headers.get("Last-Modified"), lastModified.toUTCString());
+    assert.equal(await hit.text(), "body");
+  } finally {
+    await close();
+  }
+});
+
+it("invalidates the union of path and tags without modifying caller tags", async () => {
+  const { provider: isolated, close } =
+    await createIsolatedProvider("combined");
+  try {
+    for (const [path, tag] of [
+      ["/path", "other"],
+      ["/tag", "target"],
+      ["/keep", "keep"],
+    ]) {
+      const context = createContext(`https://example.com${path}`);
+      await isolated.onRequest(
+        context,
+        async () =>
+          new Response(path, {
+            headers: isolated.setHeaders(
+              { maxAge: 60, tags: [tag] },
+              context.request,
+            ),
+          }),
+      );
+    }
+    const tags = ["target"];
+    await isolated.invalidate({ path: "/path", tags });
+    assert.deepEqual(tags, ["target"]);
+    for (const path of ["/path", "/tag", "/keep"]) {
+      let calls = 0;
+      const response = await isolated.onRequest(
+        createContext(`https://example.com${path}`),
+        async () => {
+          calls++;
+          return new Response("fresh");
+        },
+      );
+      assert.equal(calls, path === "/keep" ? 0 : 1);
+      assert.equal(await response.text(), path === "/keep" ? "/keep" : "fresh");
+    }
+  } finally {
+    await close();
+  }
+});
+
+it("reports skipped responses through the Astro request logger", async () => {
+  const { provider: isolated, close } = await createIsolatedProvider("logger");
+  try {
+    const context = createContext("https://example.com/logger");
+    const warnings: string[] = [];
+    context.logger = {
+      info() {},
+      error() {},
+      warn(message) {
+        warnings.push(message);
+      },
+    };
+    await isolated.onRequest(
+      context,
+      async () =>
+        new Response("private", {
+          headers: {
+            "CDN-Cache-Control": "max-age=60",
+            "Set-Cookie": "session=abc",
+          },
+        }),
+    );
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /Skipping cache.*Set-Cookie/);
+  } finally {
+    await close();
   }
 });
